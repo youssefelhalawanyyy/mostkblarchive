@@ -1,0 +1,7 @@
+# Exclude on-premise Python scripts and local files from Vercel deployments
+scripts/
+server-sync/
+public/uploads/
+.env.local
+*.log
+*.tsbuildinfo
