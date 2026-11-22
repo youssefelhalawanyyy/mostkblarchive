@@ -97,12 +97,11 @@ export async function verifyRequestUser(request: Request): Promise<VerifiedReque
     };
   }
 
-  // Fallback for local dev before service account key is added:
+  // Fallback when service account key is not set:
   // Verify the Firebase ID token directly against Google Identity Toolkit.
-  const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!apiKey) {
-    throw new Error("UNAUTHORIZED: Firebase API key is not configured");
-  }
+  const apiKey =
+    process.env.NEXT_PUBLIC_FIREBASE_API_KEY ||
+    "AIzaSyC3Lt0xKAwasvKR8jfKgAjZUNm-jq2palo";
 
   const lookupRes = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
