@@ -1,0 +1,37 @@
+rules_version = '2';
+
+// Firebase Storage Security Rules — AI Digital Archive System
+// Zero-Deletion Guarantee: Archived PDF files can NEVER be overwritten or deleted from client.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isPdfUpload() {
+      return request.resource != null
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size > 0
+        && request.resource.size <= 50 * 1024 * 1024;
+    }
+
+    // Archived PDF documents: archive/{year}/{direction}/{fileName}
+    match /archive/{allPaths=**} {
+      // Authenticated staff may read archived PDFs
+      allow read: if isSignedIn();
+
+      // Authenticated staff may upload new PDFs only (append-only: resource == null prevents overwrite)
+      allow create: if isSignedIn() && resource == null && isPdfUpload();
+
+      // Strictly forbid modifying or deleting archived PDF files
+      allow update, delete: if false;
+    }
+
+    // Deny everything else by default
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

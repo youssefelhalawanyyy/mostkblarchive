@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Next.js
+.next/
+out/
+build/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+scripts/.env
+server-sync/.env
+*serviceAccountKey*.json
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+logs/
+*.log
+
+# Local uploaded PDFs (free-tier fallback)
+public/uploads/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+*.tsbuildinfo

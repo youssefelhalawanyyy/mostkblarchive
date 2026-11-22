@@ -1,0 +1,422 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Arabic-first AI Digital Archive System (نظام الأرشيف الإلكتروني الذكي)
+//
+// Collection: users
+// Document ID: {uid} (matches Firebase Auth UID)
+// Fields:
+//   - uid: string (required, immutable, == document ID, 1..128 chars)
+//   - email: string (required, valid email format, <= 254 chars)
+//   - displayName: string (required, 1..200 chars)
+//   - role: string (required, enum: 'admin' | 'editor' | 'viewer')
+//   - active: bool (required)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (optional)
+//
+// Collection: documents
+// Document ID: {docId} (auto-generated)
+// Fields:
+//   - direction: string (required, enum: 'sader' | 'wared')
+//   - saderNumber: string | null (required non-empty <= 100 chars if direction == 'sader')
+//   - saderDate: string | null (required non-empty <= 50 chars if direction == 'sader')
+//   - waredNumber: string | null (required non-empty <= 100 chars if direction == 'wared')
+//   - waredDate: string | null (required non-empty <= 50 chars if direction == 'wared')
+//   - externalSaderNumber: string | null (required non-empty <= 100 chars if direction == 'wared')
+//   - externalSaderDate: string | null (required non-empty <= 50 chars if direction == 'wared')
+//   - subject: string (required, 1..500 chars)
+//   - summary: string (required, 0..4000 chars)
+//   - entityName: string (required, 1..300 chars)
+//   - documentType: string (required, 1..150 chars)
+//   - folderName: string (required, 1..300 chars)
+//   - legacyNotes: string (required, 0..10000 chars)
+//   - fullText: string (required, 0..500000 chars)
+//   - searchKeywords: list (required, size <= 100)
+//   - storagePath: string (required, immutable, 1..1000 chars)
+//   - pdfUrl: string (required, immutable, valid http(s) URL, <= 2048 chars)
+//   - originalFilename: string (required, 1..500 chars)
+//   - pageCount: int (required, >= 1, <= 10000)
+//   - aiExtractedFields: list (required, size <= 30)
+//   - createdBy: map (required, immutable; keys: uid == request.auth.uid on create, name, email)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (optional)
+//   - syncedToLegacy: bool (required, immutable from client; must be false on create)
+//   - legacyId: int | null (required, immutable from client; must be null on create)
+//   - syncedAt: timestamp | null (optional, immutable from client; must be omitted or null on create)
+//   - actionStatus: string (optional, enum: 'pending_action' | 'replied' | 'archived')
+//   - relatedDocId: string | null (optional, <= 128 chars; linked correspondence document ID)
+//   - threadId: string | null (optional, <= 128 chars; correspondence thread identifier)
+//   - confidentiality: string (optional, enum: 'normal' | 'confidential'; 'confidential' restricted to admins)
+//
+// Collection: counters
+// Document ID: {counterId} (e.g., 'sader_2026', 'wared_2026')
+// Fields:
+//   - current: int (required, >= 1, monotonic non-decreasing on update)
+//   - year: int (required, immutable, 1900..2200)
+//   - direction: string (required, immutable, enum: 'sader' | 'wared')
+//   - updatedAt: timestamp (optional)
+//
+// Collections: folders/{folderId}, entities/{entityId}, document_types/{typeId}
+// Document ID: auto-generated or slug
+// Fields:
+//   - name: string (required, 1..300 chars)
+//   - description: string (optional, <= 1000 chars)
+//   - documentCount: int (optional, >= 0)
+//   - category: string (optional, <= 150 chars; used on entities)
+//   - isDefault: bool (optional; used on document_types)
+//   - createdAt: timestamp (optional, immutable if set)
+//   - updatedAt: timestamp (optional)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Authentication & RBAC Helper Functions
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isActiveUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().active == true;
+    }
+
+    function hasRole(role) {
+      return isActiveUser() && getUserData().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isEditorOrAdmin() {
+      return isActiveUser() && getUserData().role in ['admin', 'editor'];
+    }
+
+    // ===============================================================
+    // Generic Validation Helper Functions
+    // ===============================================================
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isNonEmptyString(val, maxLen) {
+      return val is string && val.size() > 0 && val.size() <= maxLen;
+    }
+
+    function isBoundedString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    function isOptionalOrNullableString(data, field, maxLen) {
+      return !(field in data) ||
+        data[field] == null ||
+        (data[field] is string && data[field].size() <= maxLen);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() > 0 &&
+        email.size() <= 254 &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string &&
+        url.size() > 0 &&
+        url.size() <= 2048 &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    function isValidList(val, maxSize) {
+      return val is list && val.size() <= maxSize;
+    }
+
+    function isConfidentialDoc(data) {
+      return ('confidentiality' in data) && data.confidentiality == 'confidential';
+    }
+
+    // ===============================================================
+    // Domain Validators (Used in BOTH create and update rules)
+    // ===============================================================
+
+    function isValidUser(data, uid) {
+      return hasOnlyAllowedFields([
+          'uid',
+          'email',
+          'displayName',
+          'role',
+          'active',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        hasRequiredFields([
+          'uid',
+          'email',
+          'displayName',
+          'role',
+          'active',
+          'createdAt'
+        ]) &&
+        data.uid is string &&
+        data.uid == uid &&
+        data.uid.size() > 0 &&
+        data.uid.size() <= 128 &&
+        isValidEmail(data.email) &&
+        isNonEmptyString(data.displayName, 200) &&
+        data.role in ['admin', 'editor', 'viewer'] &&
+        data.active is bool &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidCreatedBy(createdBy) {
+      return createdBy is map &&
+        createdBy.keys().hasOnly(['uid', 'name', 'email']) &&
+        createdBy.keys().hasAll(['uid', 'name', 'email']) &&
+        isNonEmptyString(createdBy.uid, 128) &&
+        isBoundedString(createdBy.name, 200) &&
+        isValidEmail(createdBy.email);
+    }
+
+    function hasValidDirectionFields(data) {
+      return (
+        data.direction == 'sader' &&
+        ('saderNumber' in data) && isNonEmptyString(data.saderNumber, 100) &&
+        ('saderDate' in data) && isNonEmptyString(data.saderDate, 50) &&
+        isOptionalOrNullableString(data, 'waredNumber', 100) &&
+        isOptionalOrNullableString(data, 'waredDate', 50) &&
+        isOptionalOrNullableString(data, 'externalSaderNumber', 100) &&
+        isOptionalOrNullableString(data, 'externalSaderDate', 50)
+      ) || (
+        data.direction == 'wared' &&
+        ('waredNumber' in data) && isNonEmptyString(data.waredNumber, 100) &&
+        ('waredDate' in data) && isNonEmptyString(data.waredDate, 50) &&
+        ('externalSaderNumber' in data) && isNonEmptyString(data.externalSaderNumber, 100) &&
+        ('externalSaderDate' in data) && isNonEmptyString(data.externalSaderDate, 50) &&
+        isOptionalOrNullableString(data, 'saderNumber', 100) &&
+        isOptionalOrNullableString(data, 'saderDate', 50)
+      );
+    }
+
+    function isValidDocument(data) {
+      return hasOnlyAllowedFields([
+          'direction',
+          'saderNumber',
+          'saderDate',
+          'waredNumber',
+          'waredDate',
+          'externalSaderNumber',
+          'externalSaderDate',
+          'subject',
+          'summary',
+          'entityName',
+          'documentType',
+          'folderName',
+          'legacyNotes',
+          'fullText',
+          'searchKeywords',
+          'storagePath',
+          'pdfUrl',
+          'originalFilename',
+          'pageCount',
+          'aiExtractedFields',
+          'createdBy',
+          'createdAt',
+          'updatedAt',
+          'syncedToLegacy',
+          'legacyId',
+          'syncedAt',
+          'actionStatus',
+          'relatedDocId',
+          'threadId',
+          'confidentiality'
+        ]) &&
+        hasRequiredFields([
+          'direction',
+          'subject',
+          'summary',
+          'entityName',
+          'documentType',
+          'folderName',
+          'legacyNotes',
+          'fullText',
+          'searchKeywords',
+          'storagePath',
+          'pdfUrl',
+          'originalFilename',
+          'pageCount',
+          'aiExtractedFields',
+          'createdBy',
+          'createdAt',
+          'syncedToLegacy',
+          'legacyId'
+        ]) &&
+        data.direction in ['sader', 'wared'] &&
+        hasValidDirectionFields(data) &&
+        isNonEmptyString(data.subject, 500) &&
+        isBoundedString(data.summary, 4000) &&
+        isNonEmptyString(data.entityName, 300) &&
+        isNonEmptyString(data.documentType, 150) &&
+        isNonEmptyString(data.folderName, 300) &&
+        isBoundedString(data.legacyNotes, 10000) &&
+        isBoundedString(data.fullText, 500000) &&
+        isValidList(data.searchKeywords, 100) &&
+        isNonEmptyString(data.storagePath, 1000) &&
+        isValidUrl(data.pdfUrl) &&
+        isNonEmptyString(data.originalFilename, 500) &&
+        data.pageCount is int &&
+        data.pageCount >= 1 &&
+        data.pageCount <= 10000 &&
+        isValidList(data.aiExtractedFields, 30) &&
+        isValidCreatedBy(data.createdBy) &&
+        data.createdAt is timestamp &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+        data.syncedToLegacy is bool &&
+        (data.legacyId == null || data.legacyId is int) &&
+        (!('syncedAt' in data) || data.syncedAt == null || data.syncedAt is timestamp) &&
+        (!('actionStatus' in data) || (data.actionStatus is string && data.actionStatus in ['pending_action', 'replied', 'archived'])) &&
+        isOptionalOrNullableString(data, 'relatedDocId', 128) &&
+        isOptionalOrNullableString(data, 'threadId', 128) &&
+        (!('confidentiality' in data) || (data.confidentiality is string && data.confidentiality in ['normal', 'confidential']));
+    }
+
+    function isValidCounter(data) {
+      return hasOnlyAllowedFields(['current', 'year', 'direction', 'updatedAt']) &&
+        hasRequiredFields(['current', 'year', 'direction']) &&
+        data.current is int &&
+        data.current >= 1 &&
+        data.year is int &&
+        data.year >= 1900 &&
+        data.year <= 2200 &&
+        data.direction in ['sader', 'wared'] &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidTaxonomyItem(data) {
+      return hasOnlyAllowedFields([
+          'name',
+          'description',
+          'documentCount',
+          'category',
+          'isDefault',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        hasRequiredFields(['name']) &&
+        isNonEmptyString(data.name, 300) &&
+        (!('description' in data) || isBoundedString(data.description, 1000)) &&
+        (!('documentCount' in data) || (data.documentCount is int && data.documentCount >= 0)) &&
+        (!('category' in data) || isBoundedString(data.category, 150)) &&
+        (!('isDefault' in data) || data.isDefault is bool) &&
+        (!('createdAt' in data) || data.createdAt is timestamp) &&
+        (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // 1. Users collection (PII protected; never deleted to preserve audit trails)
+    match /users/{uid} {
+      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidUser(request.resource.data, uid);
+      allow update: if isAdmin() &&
+        isValidUser(request.resource.data, uid) &&
+        areImmutableFieldsUnchanged(['uid', 'createdAt']);
+      allow delete: if false;
+    }
+
+    // 2. Core correspondence archive documents (Zero-Deletion Guarantee)
+    match /documents/{docId} {
+      allow read: if isAdmin() ||
+        (isActiveUser() && (!('confidentiality' in resource.data) || resource.data.confidentiality == 'normal'));
+      allow create: if isEditorOrAdmin() &&
+        (!isConfidentialDoc(request.resource.data) || isAdmin()) &&
+        isValidDocument(request.resource.data) &&
+        request.resource.data.syncedToLegacy == false &&
+        request.resource.data.legacyId == null &&
+        (!('syncedAt' in request.resource.data) || request.resource.data.syncedAt == null) &&
+        request.resource.data.createdBy.uid == request.auth.uid;
+      allow update: if isEditorOrAdmin() &&
+        ((!isConfidentialDoc(resource.data) && !isConfidentialDoc(request.resource.data)) || isAdmin()) &&
+        isValidDocument(request.resource.data) &&
+        areImmutableFieldsUnchanged([
+          'createdBy',
+          'createdAt',
+          'storagePath',
+          'pdfUrl',
+          'syncedToLegacy',
+          'legacyId',
+          'syncedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // 3. Yearly serial number counters (e.g., sader_2026, wared_2026)
+    match /counters/{counterId} {
+      allow read: if isActiveUser();
+      allow create: if isEditorOrAdmin() && isValidCounter(request.resource.data);
+      allow update: if isEditorOrAdmin() &&
+        isValidCounter(request.resource.data) &&
+        areImmutableFieldsUnchanged(['year', 'direction']) &&
+        request.resource.data.current >= resource.data.current;
+      allow delete: if false;
+    }
+
+    // 4. Taxonomy / lookup collections
+    match /folders/{folderId} {
+      allow read: if isActiveUser();
+      allow create: if isEditorOrAdmin() && isValidTaxonomyItem(request.resource.data);
+      allow update: if isEditorOrAdmin() &&
+        isValidTaxonomyItem(request.resource.data) &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+      allow delete: if isAdmin();
+    }
+
+    match /entities/{entityId} {
+      allow read: if isActiveUser();
+      allow create: if isEditorOrAdmin() && isValidTaxonomyItem(request.resource.data);
+      allow update: if isEditorOrAdmin() &&
+        isValidTaxonomyItem(request.resource.data) &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+      allow delete: if isAdmin();
+    }
+
+    match /document_types/{typeId} {
+      allow read: if isActiveUser();
+      allow create: if isEditorOrAdmin() && isValidTaxonomyItem(request.resource.data);
+      allow update: if isEditorOrAdmin() &&
+        isValidTaxonomyItem(request.resource.data) &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt);
+      allow delete: if isAdmin();
+    }
+
+    // 5. Catch-all default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

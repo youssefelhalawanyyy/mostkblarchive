@@ -1,0 +1,274 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   Design tokens — RGB channels so Tailwind can apply /<alpha> modifiers.
+   Dark (default) on :root, light via html.light.
+   ========================================================================== */
+:root,
+html.dark {
+  --c-bg: 9 9 11;
+  --c-panel: 17 17 20;
+  --c-raised: 26 26 31;
+  --c-line: 36 36 42;
+  --c-line-strong: 52 52 60;
+  --c-fg: 244 244 245;
+  --c-muted: 161 161 170;
+  --c-faint: 113 113 122;
+  --c-inverse: 250 250 250;
+  --c-inverse-fg: 9 9 11;
+
+  --c-sader: 34 211 238;
+  --c-wared: 245 166 35;
+  --c-ai: 167 139 250;
+  --c-ok: 52 211 153;
+  --c-danger: 251 113 133;
+
+  --c-scroll-thumb: 82 82 91;
+  --shadow-card: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-pop: 0 24px 64px -16px rgb(0 0 0 / 0.7), 0 0 0 1px rgb(255 255 255 / 0.06);
+  color-scheme: dark;
+}
+
+html.light {
+  --c-bg: 246 246 248;
+  --c-panel: 255 255 255;
+  --c-raised: 243 243 246;
+  --c-line: 229 229 234;
+  --c-line-strong: 212 212 219;
+  --c-fg: 10 10 14;
+  --c-muted: 82 82 91;
+  --c-faint: 120 120 130;
+  --c-inverse: 20 20 24;
+  --c-inverse-fg: 250 250 250;
+
+  --c-sader: 8 145 178;
+  --c-wared: 194 105 7;
+  --c-ai: 124 58 237;
+  --c-ok: 5 150 105;
+  --c-danger: 225 29 72;
+
+  --c-scroll-thumb: 190 190 200;
+  --shadow-card: 0 1px 2px rgb(16 16 24 / 0.04), 0 1px 1px rgb(16 16 24 / 0.02);
+  --shadow-pop: 0 24px 64px -16px rgb(16 16 24 / 0.25), 0 0 0 1px rgb(16 16 24 / 0.06);
+  color-scheme: light;
+}
+
+:root {
+  scrollbar-color: rgb(var(--c-scroll-thumb)) transparent;
+  accent-color: rgb(var(--c-fg));
+}
+
+@layer base {
+  html,
+  body {
+    background-color: rgb(var(--c-bg));
+    color: rgb(var(--c-fg));
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  * {
+    border-color: rgb(var(--c-line));
+  }
+
+  ::selection {
+    background: rgb(var(--c-sader) / 0.28);
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-fg) / 0.55);
+    outline-offset: 2px;
+  }
+
+  /* Modal dialogs: contain scroll so the page behind never moves */
+  dialog:modal {
+    overscroll-behavior: contain;
+  }
+  dialog::backdrop {
+    overflow: hidden;
+    overscroll-behavior: contain;
+    background: rgb(0 0 0 / 0.55);
+    backdrop-filter: blur(3px);
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-panel;
+    box-shadow: var(--shadow-card);
+  }
+
+  .btn {
+    @apply inline-flex h-9 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 text-[13px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-sm {
+    @apply h-8 rounded-md px-2.5 text-xs;
+  }
+  .btn-lg {
+    @apply h-10 px-5 text-sm;
+  }
+  .btn-icon {
+    @apply w-9 px-0;
+  }
+  .btn-primary {
+    @apply bg-inverse text-inverse-fg hover:bg-inverse/85;
+  }
+  .btn-secondary {
+    @apply border border-line bg-panel text-fg hover:border-line-strong hover:bg-raised;
+  }
+  .btn-ghost {
+    @apply text-muted hover:bg-raised hover:text-fg;
+  }
+  .btn-ai {
+    @apply bg-ai text-white hover:bg-ai/90;
+  }
+
+  .input {
+    @apply h-9 w-full rounded-lg border border-line bg-panel px-3 text-[13px] text-fg transition placeholder:text-faint hover:border-line-strong focus:border-fg/40 focus:outline-none focus:ring-4 focus:ring-fg/[0.06];
+  }
+  textarea.input {
+    @apply h-auto py-2 leading-relaxed;
+  }
+  .input-ai {
+    @apply border-ai/40 bg-ai/[0.04];
+  }
+
+  .label {
+    @apply mb-1.5 flex items-center gap-1.5 text-[12.5px] font-medium text-fg;
+  }
+  .hint {
+    @apply mt-1.5 text-[11.5px] leading-relaxed text-faint;
+  }
+
+  .kbd {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-raised px-1.5 font-mono text-[10.5px] font-medium text-muted;
+  }
+
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-wide text-faint;
+  }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  /* Fast rendering for long archive tables */
+  tbody tr {
+    content-visibility: auto;
+    contain-intrinsic-size: 52px;
+  }
+}
+
+/* ==========================================================================
+   Side drawer (native modal <dialog>) — slides in from the inline-end edge
+   (left side in RTL).
+   ========================================================================== */
+dialog.drawer {
+  margin: 0;
+  margin-inline-start: auto;
+  inset-block: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  width: min(1080px, 100vw);
+  max-width: 100vw;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+dialog.drawer[open] {
+  display: flex;
+  animation: drawer-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes drawer-in {
+  from {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+}
+
+dialog.modal {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  max-width: calc(100vw - 2rem);
+}
+dialog.modal[open] {
+  animation: modal-in 180ms ease-out;
+}
+@keyframes modal-in {
+  from {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--c-raised)) 0%,
+    rgb(var(--c-line)) 50%,
+    rgb(var(--c-raised)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+.bg-grid {
+  background-image: linear-gradient(rgb(var(--c-fg) / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--c-fg) / 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .card,
+  .input,
+  .btn {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* Print-only barcode label isolation */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #barcode-print-area,
+  #barcode-print-area * {
+    visibility: visible;
+  }
+  #barcode-print-area {
+    position: fixed;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    width: 100%;
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 16px;
+  }
+}
