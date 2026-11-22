@@ -39,6 +39,10 @@ import {
   unlinkDocumentFromThread,
   updateArchiveDocument,
 } from "@/lib/archive/queries";
+import {
+  isFirestoreChunkPdf,
+  loadPdfFromFirestoreChunks,
+} from "@/lib/archive/pdfStore";
 import { toAsciiDigits } from "@/lib/archive/normalize";
 import { useAuth } from "@/context/AuthContext";
 import { cn, formatTimestampArabic } from "@/lib/utils";
@@ -74,6 +78,8 @@ export function DocumentDrawer({
   const [showBarcode, setShowBarcode] = useState(false);
   const [tab, setTab] = useState<DrawerTab>("details");
   const [copied, setCopied] = useState(false);
+  const [resolvedPdfUrl, setResolvedPdfUrl] = useState<string>("");
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   // Correspondence Thread state
   const [threadDocs, setThreadDocs] = useState<ArchiveDocument[]>([]);
@@ -139,6 +145,29 @@ export function DocumentDrawer({
     } else {
       setThreadDocs([]);
     }
+
+    // Resolve PDF URL (supports Firebase Storage, local disk, AND free Firestore chunk PDFs)
+    let active = true;
+    if (isFirestoreChunkPdf(doc.storagePath)) {
+      setResolvedPdfUrl("");
+      setLoadingPdf(true);
+      loadPdfFromFirestoreChunks(doc.id)
+        .then((blobUrl) => {
+          if (active) setResolvedPdfUrl(blobUrl);
+        })
+        .catch(() => {
+          if (active) setResolvedPdfUrl("");
+        })
+        .finally(() => {
+          if (active) setLoadingPdf(false);
+        });
+    } else {
+      setLoadingPdf(false);
+      setResolvedPdfUrl(doc.pdfUrl || "");
+    }
+    return () => {
+      active = false;
+    };
   }, [doc]);
 
   // Light-dismiss when press & release happen outside the panel
@@ -184,7 +213,7 @@ export function DocumentDrawer({
   };
 
   const handlePrintPdf = () => {
-    if (!doc?.pdfUrl) return;
+    if (!resolvedPdfUrl) return;
     try {
       const win = pdfIframeRef.current?.contentWindow;
       if (win && tab === "details") {
@@ -195,7 +224,7 @@ export function DocumentDrawer({
     } catch {
       // cross-origin fallback
     }
-    const printWin = window.open(doc.pdfUrl, "_blank", "noopener,noreferrer");
+    const printWin = window.open(resolvedPdfUrl, "_blank", "noopener,noreferrer");
     if (printWin) {
       printWin.addEventListener("load", () => {
         try {
@@ -370,7 +399,7 @@ export function DocumentDrawer({
                   </button>
                 )}
 
-                {doc.pdfUrl && (
+                {resolvedPdfUrl && (
                   <button
                     type="button"
                     onClick={handlePrintPdf}
@@ -390,9 +419,9 @@ export function DocumentDrawer({
                   ملصق
                 </button>
 
-                {doc.pdfUrl && (
+                {resolvedPdfUrl && (
                   <a
-                    href={doc.pdfUrl}
+                    href={resolvedPdfUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     download={doc.originalFilename}
@@ -925,7 +954,7 @@ export function DocumentDrawer({
                     {doc.originalFilename}
                   </span>
                   <div className="flex shrink-0 items-center gap-1">
-                    {doc.pdfUrl && (
+                    {resolvedPdfUrl && (
                       <>
                         <button
                           type="button"
@@ -936,7 +965,7 @@ export function DocumentDrawer({
                           طباعة
                         </button>
                         <a
-                          href={doc.pdfUrl}
+                          href={resolvedPdfUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="btn btn-ghost btn-sm"
@@ -949,10 +978,15 @@ export function DocumentDrawer({
                   </div>
                 </div>
 
-                {doc.pdfUrl ? (
+                {loadingPdf ? (
+                  <div className="flex flex-1 items-center justify-center gap-2 text-[13px] text-muted">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                    جاري تحميل ملف الـ PDF…
+                  </div>
+                ) : resolvedPdfUrl ? (
                   <iframe
                     ref={pdfIframeRef}
-                    src={`${doc.pdfUrl}#toolbar=1&navpanes=0`}
+                    src={`${resolvedPdfUrl}#toolbar=1&navpanes=0`}
                     title={`معاينة: ${doc.subject}`}
                     className="w-full flex-1 bg-bg"
                   />

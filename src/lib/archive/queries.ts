@@ -26,6 +26,7 @@ import {
   type NewArchiveDocumentInput,
 } from "@/lib/types";
 import { buildSearchKeywords, normalizeArabicText, toAsciiDigits } from "@/lib/archive/normalize";
+import { savePdfToFirestoreChunks } from "@/lib/archive/pdfStore";
 import { sanitizeFilename, slugifyTaxonomyId } from "@/lib/utils";
 
 // Shared in-memory documents cache for 0ms instant navigation between Dashboard & Archive
@@ -189,9 +190,9 @@ export function subscribeToArchiveDocuments(
   );
 }
 
-// Remember if Firebase Storage is unavailable so we never wait 5s more than once
-let firebaseStorageUnavailable =
-  process.env.NEXT_PUBLIC_STORAGE_MODE === "local";
+// Remember which storage backend works in this environment so we never wait on timeouts twice
+let resolvedStorageBackend: "auto" | "local" | "firestore" =
+  process.env.NEXT_PUBLIC_STORAGE_MODE === "local" ? "local" : "auto";
 
 export async function uploadPdfAndCreateDocument(
   file: File,
@@ -206,30 +207,47 @@ export async function uploadPdfAndCreateDocument(
   let storagePath = `archive/${year}/${payload.direction}/${docId}_${safeName}`;
   let pdfUrl = "";
 
-  const uploadLocal = async () => {
-    if (!idToken) throw new Error("تعذر التحقق من الجلسة لرفع الملف.");
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("docId", docId);
-    const localRes = await fetch("/api/local-upload", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${idToken}` },
-      body: formData,
-    });
-    if (!localRes.ok) {
-      throw new Error("تعذر حفظ ملف الـ PDF محلياً.");
+  const tryLocalUpload = async (): Promise<boolean> => {
+    if (!idToken) return false;
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("docId", docId);
+      const localRes = await fetch("/api/local-upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: formData,
+      });
+      if (!localRes.ok) return false;
+      const localJson = (await localRes.json()) as {
+        storagePath: string;
+        pdfUrl: string;
+      };
+      storagePath = localJson.storagePath;
+      pdfUrl = localJson.pdfUrl;
+      return true;
+    } catch {
+      return false;
     }
-    const localJson = (await localRes.json()) as {
-      storagePath: string;
-      pdfUrl: string;
-    };
-    storagePath = localJson.storagePath;
-    pdfUrl = localJson.pdfUrl;
   };
 
-  if (firebaseStorageUnavailable) {
-    await uploadLocal();
+  const uploadToFirestoreFallback = async () => {
+    const res = await savePdfToFirestoreChunks(docId, file);
+    storagePath = res.storagePath;
+    pdfUrl = res.pdfUrl;
+  };
+
+  if (resolvedStorageBackend === "firestore") {
+    await uploadToFirestoreFallback();
+  } else if (resolvedStorageBackend === "local") {
+    const ok = await tryLocalUpload();
+    if (!ok) {
+      // On Vercel (read-only filesystem), switch automatically to free Firestore chunk storage
+      resolvedStorageBackend = "firestore";
+      await uploadToFirestoreFallback();
+    }
   } else {
+    // Auto mode: try Firebase Storage (2.5s), then local disk (dev/Windows), then Firestore chunks (Vercel Spark Free)
     try {
       const storage = getFirebaseStorage();
       const storageRef = ref(storage, storagePath);
@@ -243,13 +261,18 @@ export async function uploadPdfAndCreateDocument(
       })();
 
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("STORAGE_TIMEOUT")), 3500)
+        setTimeout(() => reject(new Error("STORAGE_TIMEOUT")), 2500)
       );
 
       pdfUrl = await Promise.race([uploadPromise, timeoutPromise]);
     } catch {
-      firebaseStorageUnavailable = true;
-      await uploadLocal();
+      const localOk = await tryLocalUpload();
+      if (localOk) {
+        resolvedStorageBackend = "local";
+      } else {
+        resolvedStorageBackend = "firestore";
+        await uploadToFirestoreFallback();
+      }
     }
   }
 

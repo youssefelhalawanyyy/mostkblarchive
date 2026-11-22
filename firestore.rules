@@ -70,6 +70,15 @@ rules_version = '2';
 //   - createdAt: timestamp (optional, immutable if set)
 //   - updatedAt: timestamp (optional)
 //
+// Collection: pdf_chunks/{docId}/parts/{partId}
+// Document ID: {partId} (chunk document under parent PDF docId)
+// Fields:
+//   - data: string (required, 1..900000 chars; base64 chunk)
+//   - index: int (required, 0..50)
+//   - total: int (required, 1..50)
+//   - filename: string (required, 1..500 chars)
+//   - createdAt: timestamp (required)
+//
 // ===============================================================
 
 service cloud.firestore {
@@ -334,6 +343,20 @@ service cloud.firestore {
         (!('updatedAt' in data) || data.updatedAt is timestamp);
     }
 
+    function isValidPdfChunk(data) {
+      return hasOnlyAllowedFields(['data', 'index', 'total', 'filename', 'createdAt']) &&
+        hasRequiredFields(['data', 'index', 'total', 'filename', 'createdAt']) &&
+        isNonEmptyString(data.data, 900000) &&
+        data.index is int &&
+        data.index >= 0 &&
+        data.index <= 50 &&
+        data.total is int &&
+        data.total >= 1 &&
+        data.total <= 50 &&
+        isNonEmptyString(data.filename, 500) &&
+        data.createdAt is timestamp;
+    }
+
     // ===============================================================
     // Collection Rules
     // ===============================================================
@@ -414,7 +437,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 5. Catch-all default deny
+    // 5. Free-tier Spark PDF chunk storage (Immutable & Zero-Deletion Guarantee)
+    match /pdf_chunks/{docId}/parts/{partId} {
+      allow read: if isActiveUser();
+      allow create: if isEditorOrAdmin() && isValidPdfChunk(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // 6. Catch-all default deny
     match /{document=**} {
       allow read, write: if false;
     }
