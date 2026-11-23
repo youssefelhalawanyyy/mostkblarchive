@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "نظام الأرشيف الإلكتروني الذكي — الصادر والوارد",
-    short_name: "الأرشيف الذكي",
+    name: "محلل PDF الذكي — استخراج النص والملخص",
+    short_name: "محلل PDF",
     description:
-      "منظومة تنفيذية متكاملة لإدارة وأرشفة المراسلات الرسمية (الصادر والوارد) بالذكاء الاصطناعي.",
+      "أداة ذكية فورية لرفع ملفات PDF واستخراج الملخص التنفيذي والنقاط الرئيسية والأختام والنص الكامل (OCR).",
     lang: "ar",
     dir: "rtl",
     start_url: "/",
@@ -14,7 +14,7 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "any",
     background_color: "#09090b",
     theme_color: "#09090b",
-    categories: ["business", "productivity", "utilities"],
+    categories: ["productivity", "utilities"],
     icons: [
       {
         src: "/icons/icon-192.png",
@@ -35,22 +35,5 @@ export default function manifest(): MetadataRoute.Manifest {
         purpose: "maskable",
       },
     ],
-    shortcuts: [
-      {
-        name: "تسجيل مستند جديد",
-        short_name: "مستند جديد",
-        description: "رفع وتحليل مستند PDF جديد بالذكاء الاصطناعي",
-        url: "/intake",
-        icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
-      },
-      {
-        name: "أرشيف الصادر والوارد",
-        short_name: "الأرشيف",
-        description: "البحث والاستعراض الفوري لجميع المراسلات",
-        url: "/archive",
-        icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }],
-      },
-    ],
   };
 }
-

@@ -1,9 +1,8 @@
-// Service Worker — نظام الأرشيف الإلكتروني الذكي (PWA)
-const CACHE_VERSION = "mostkbl-archive-v1";
+// Service Worker — محلل PDF الذكي (PWA)
+const CACHE_VERSION = "mostkbl-pdf-tool-v2";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
-const PDF_CACHE = `${CACHE_VERSION}-pdfs`;
 
-const PRECACHE_URLS = ["/", "/archive", "/intake", "/taxonomy", "/offline"];
+const PRECACHE_URLS = ["/", "/offline"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -34,27 +33,10 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-
-  // Never intercept API calls or cross-origin Firebase/Gemini requests
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) {
     return;
   }
 
-  // 1. Immutable local PDFs (/uploads/*): Cache-First for instant offline viewing
-  if (url.pathname.startsWith("/uploads/")) {
-    event.respondWith(
-      caches.open(PDF_CACHE).then(async (cache) => {
-        const cached = await cache.match(request);
-        if (cached) return cached;
-        const fresh = await fetch(request);
-        if (fresh.ok) cache.put(request, fresh.clone());
-        return fresh;
-      })
-    );
-    return;
-  }
-
-  // 2. Next.js static bundles & icons: Stale-While-Revalidate
   if (
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/icons/")
@@ -74,7 +56,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3. Page navigations: Network-First with offline fallback
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
@@ -90,4 +71,3 @@ self.addEventListener("fetch", (event) => {
     );
   }
 });
-

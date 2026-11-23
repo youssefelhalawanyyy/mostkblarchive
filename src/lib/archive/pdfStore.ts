@@ -122,3 +122,4 @@ export async function loadPdfFromFirestoreChunks(docId: string): Promise<string>
   blobUrlCache.set(docId, blobUrl);
   return blobUrl;
 }
+

@@ -2,7 +2,6 @@ import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans_Arabic, Cairo } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
-import { AuthProvider } from "@/context/AuthContext";
 import { PwaManager } from "@/components/pwa/PwaManager";
 
 const ibmPlexArabic = IBM_Plex_Sans_Arabic({
@@ -22,14 +21,14 @@ const cairo = Cairo({
 });
 
 export const metadata: Metadata = {
-  title: "نظام الأرشيف الإلكتروني الذكي — الصادر والوارد",
+  title: "محلل PDF الذكي — استخراج النص والملخص الفوري",
   description:
-    "منظومة تنفيذية متكاملة لإدارة وأرشفة المراسلات الرسمية (الصادر والوارد) مدعومة بالذكاء الاصطناعي.",
+    "أداة ذكية فورية لقراءة ملفات الـ PDF واستخراج الملخص التنفيذي والنقاط الرئيسية والأختام والنص الكامل (OCR) بالذكاء الاصطناعي.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "الأرشيف الذكي",
+    title: "محلل PDF الذكي",
   },
   icons: {
     icon: [
@@ -51,7 +50,6 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// Applies the saved theme before first paint to avoid a flash of the wrong theme.
 const themeBootScript = `(function(){try{var t=localStorage.getItem('mostkbl_archive_theme');var r=document.documentElement;if(t==='light'){r.classList.remove('dark');r.classList.add('light');}else{r.classList.add('dark');r.classList.remove('light');}}catch(e){}})();`;
 
 export default function RootLayout({
@@ -71,10 +69,8 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen bg-bg font-sans text-fg antialiased">
         <ThemeProvider>
-          <AuthProvider>
-            {children}
-            <PwaManager />
-          </AuthProvider>
+          {children}
+          <PwaManager />
         </ThemeProvider>
       </body>
     </html>
