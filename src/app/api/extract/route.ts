@@ -10,10 +10,20 @@ export const maxDuration = 30;
 // Free-tier friendly cap (under Vercel Hobby 4.5MB serverless body limit)
 const MAX_PDF_BYTES = 4.2 * 1024 * 1024;
 
+const PdfHighlightZodSchema = z.object({
+  page: z.number().int().min(1).default(1),
+  label: z.string().default(""),
+  category: z.enum(["key_point", "decision", "amount", "date", "stamp"]).default("key_point"),
+  box_2d: z.array(z.number()).length(4),
+});
+
+export type PdfHighlight = z.infer<typeof PdfHighlightZodSchema>;
+
 const PdfAnalysisZodSchema = z.object({
   title: z.string().default(""),
   summary: z.string().default(""),
   keyPoints: z.array(z.string()).default([]),
+  highlights: z.array(PdfHighlightZodSchema).default([]),
   entityName: z.string().default(""),
   documentType: z.string().default(""),
   waredNumber: z.string().default(""),
@@ -46,6 +56,36 @@ const PDF_ANALYSIS_RESPONSE_SCHEMA: Schema = {
       type: Type.ARRAY,
       items: { type: Type.STRING },
       description: "أهم 3 إلى 8 نقاط رئيسية أو قرارات أو بنود مذكورة في المستند.",
+    },
+    highlights: {
+      type: Type.ARRAY,
+      description:
+        "أهم 4 إلى 10 مواضع رئيسية داخل صفحات الـ PDF ليتم تظليلها بصرياً (الموضوع الرئيسي، القرارات، المبالغ المالية، التواريخ، الأختام) مع إحداثياتها الدقيقة.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          page: {
+            type: Type.INTEGER,
+            description: "رقم الصفحة (يبدأ من 1).",
+          },
+          label: {
+            type: Type.STRING,
+            description: "وصف عربي مختصر جداً (3 إلى 8 كلمات) للنقطة المظللة.",
+          },
+          category: {
+            type: Type.STRING,
+            enum: ["key_point", "decision", "amount", "date", "stamp"],
+            description: "تصنيف التظليل: key_point أو decision أو amount أو date أو stamp.",
+          },
+          box_2d: {
+            type: Type.ARRAY,
+            items: { type: Type.INTEGER },
+            description:
+              "إحداثيات المربع المحيط بالسطر أو العبارة بدقة [ymin, xmin, ymax, xmax] بمقياس من 0 إلى 1000 نسبة لأبعاد الصفحة.",
+          },
+        },
+        required: ["page", "label", "category", "box_2d"],
+      },
     },
     entityName: {
       type: Type.STRING,
@@ -105,6 +145,7 @@ const PDF_ANALYSIS_RESPONSE_SCHEMA: Schema = {
     "title",
     "summary",
     "keyPoints",
+    "highlights",
     "entityName",
     "documentType",
     "waredNumber",
@@ -127,13 +168,22 @@ Read EVERY page of the uploaded PDF — including scanned Arabic pages, rubber s
 ### Rules:
 1. **Complete OCR (\`fullText\`)**: Transcribe ALL readable text cleanly in reading order, preserving paragraphs, bullet points, numbers, and tables.
 2. **Executive Summary (\`summary\` & \`keyPoints\`)**: Write a clear, formal Arabic summary and concise key bullet points capturing all decisions, dates, parties, and amounts.
-3. **High-Precision Arabic-Indic Stamp Digits**:
+3. **Visual PDF Highlights (\`highlights\`)**:
+   - Return **4 to 10** tight, accurate 2D bounding boxes (\`box_2d: [ymin, xmin, ymax, xmax]\` in integers \`0..1000\` relative to each page's top-left \`(0,0)\` to bottom-right \`(1000,1000)\`) marking the exact lines or phrases inside the PDF that contain:
+     - The main subject/heading (\`key_point\`)
+     - Key decisions, approvals, or required actions (\`decision\`)
+     - Financial amounts or totals (\`amount\`)
+     - Important deadlines or dates (\`date\`)
+     - Official incoming/outgoing stamps (\`stamp\`)
+   - Keep each \`box_2d\` tightly fitted around the actual text line(s) so it looks like a neat highlighter marker directly over the text. Never cover the whole page.
+   - \`page\` is 1-based (1 = first page).
+4. **High-Precision Arabic-Indic Stamp Digits**:
    - Carefully distinguish **\`٣\` (3)** (two valleys / three peaks) from **\`٢\` (2)** (single hook), \`٠\` (0) from \`٥\` (5), \`٧\` (7) from \`٨\` (8), and \`٦\` (6) from \`٢\` (2).
    - Map stamps labeled **"الوارد"** ONLY to \`waredNumber\` / \`waredDate\`.
    - Map stamps labeled **"الصادر"** ONLY to \`saderNumber\` / \`saderDate\`.
    - Map letterhead / secondary reference stamps to \`externalSaderNumber\`.
    - Convert ALL extracted numbers & dates to Western ASCII digits (\`0123456789\`) and ISO dates (\`YYYY-MM-DD\`).
-4. Never invent information not present in the PDF. Leave absent fields as \`""\` or \`[]\`.
+5. Never invent information not present in the PDF. Leave absent fields as \`""\` or \`[]\`.
 `.trim();
 
 // In-memory SHA-256 deduplication cache (0 tokens on repeat uploads)
@@ -176,7 +226,7 @@ export async function POST(request: Request) {
     const pdfBuffer = Buffer.from(await file.arrayBuffer());
     const pdfHash = crypto
       .createHash("sha256")
-      .update("pdf-tool-v1:")
+      .update("pdf-tool-v2-highlights:")
       .update(pdfBuffer)
       .digest("hex");
 
@@ -210,7 +260,7 @@ export async function POST(request: Request) {
                   },
                 },
                 {
-                  text: "قم بقراءة هذا الملف بالكامل واستخراج العنوان والملخص التنفيذي والنقاط الرئيسية والأختام والتواريخ والمبالغ والنص الكامل (OCR) بدقة.",
+                  text: "قم بقراءة هذا الملف بالكامل واستخراج العنوان والملخص التنفيذي والنقاط الرئيسية ومواضع التظليل (highlights) بإحداثياتها الدقيقة على الصفحات والأختام والتواريخ والمبالغ والنص الكامل (OCR).",
                 },
               ],
             },
@@ -242,8 +292,32 @@ export async function POST(request: Request) {
     const normalizedWared = toAsciiDigits(parsed.waredNumber).trim();
     const normalizedExt = toAsciiDigits(parsed.externalSaderNumber).trim();
 
+    const clamp = (n: number) => Math.max(0, Math.min(1000, Math.round(n)));
+    const sanitizedHighlights: PdfHighlight[] = parsed.highlights
+      .map((h) => {
+        const [rawYmin, rawXmin, rawYmax, rawXmax] = h.box_2d;
+        const ymin = clamp(Math.min(rawYmin, rawYmax));
+        const ymax = clamp(Math.max(rawYmin, rawYmax));
+        const xmin = clamp(Math.min(rawXmin, rawXmax));
+        const xmax = clamp(Math.max(rawXmin, rawXmax));
+        return {
+          page: Math.max(1, Math.min(parsed.pageCount, h.page)),
+          label: h.label.trim(),
+          category: h.category,
+          box_2d: [ymin, xmin, ymax, xmax],
+        };
+      })
+      .filter((h) => {
+        const [ymin, xmin, ymax, xmax] = h.box_2d;
+        const height = ymax - ymin;
+        const width = xmax - xmin;
+        // Must have visible area and not cover >85% of the entire page
+        return height >= 8 && width >= 15 && !(height > 850 && width > 850);
+      });
+
     const result: PdfAnalysisResult = {
       ...parsed,
+      highlights: sanitizedHighlights,
       waredNumber: normalizedWared,
       waredDate: normalizeDateString(parsed.waredDate),
       saderNumber: toAsciiDigits(parsed.saderNumber).trim(),

@@ -17,6 +17,7 @@
     "firebase-admin": "^13.2.0",
     "lucide-react": "^0.475.0",
     "next": "^15.2.4",
+    "pdfjs-dist": "^6.5.438",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
@@ -32,4 +33,3 @@
     "typescript": "^5.8.2"
   }
 }
-

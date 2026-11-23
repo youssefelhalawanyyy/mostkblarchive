@@ -11,7 +11,6 @@ import {
   Download,
   Printer,
   FileText,
-  ListChecks,
   MessageSquare,
   Send,
   Loader2,
@@ -23,12 +22,21 @@ import {
   Banknote,
   Tag,
   Clock,
+  Highlighter,
 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 import { PdfViewer } from "@/components/intake/PdfViewer";
 import { LtrCode } from "@/components/ui/LtrCode";
 import { Tabs } from "@/components/ui/primitives";
-import type { PdfAnalysisResult } from "@/app/api/extract/route";
+import type { PdfAnalysisResult, PdfHighlight } from "@/app/api/extract/route";
+
+const HIGHLIGHT_DOT: Record<PdfHighlight["category"], string> = {
+  key_point: "bg-yellow-400",
+  decision: "bg-orange-400",
+  amount: "bg-emerald-400",
+  date: "bg-sky-400",
+  stamp: "bg-fuchsia-400",
+};
 
 interface SessionItem {
   id: string;
@@ -136,6 +144,7 @@ export default function PdfAnalyzerHomePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<PdfAnalysisResult | null>(null);
+  const [activeHighlightIndex, setActiveHighlightIndex] = useState<number | null>(null);
   const [tab, setTab] = useState<OutputTab>("summary");
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -178,6 +187,7 @@ export default function PdfAnalyzerHomePage() {
     setSelectedFile(file);
     setPdfObjectUrl(objectUrl);
     setResult(null);
+    setActiveHighlightIndex(null);
     setError("");
     setQaMessages([]);
     setTab("summary");
@@ -279,6 +289,7 @@ export default function PdfAnalyzerHomePage() {
     setSelectedFile(null);
     setPdfObjectUrl(null);
     setResult(null);
+    setActiveHighlightIndex(null);
     setError("");
     setQaMessages([]);
   };
@@ -287,6 +298,7 @@ export default function PdfAnalyzerHomePage() {
     setSelectedFile(null);
     setPdfObjectUrl(item.objectUrl);
     setResult(item.result);
+    setActiveHighlightIndex(null);
     setError("");
     setQaMessages([]);
     setTab("summary");
@@ -331,7 +343,7 @@ export default function PdfAnalyzerHomePage() {
                 محلل PDF الذكي
               </span>
               <span className="hidden text-[11px] text-faint sm:block">
-                استخراج فوري للملخص والنص الكامل والبيانات
+                استخراج فوري للملخص والنص الكامل وتظليل النقاط على الملف
               </span>
             </div>
           </button>
@@ -368,14 +380,14 @@ export default function PdfAnalyzerHomePage() {
             <div className="mb-6 text-center">
               <div className="mx-auto mb-4 inline-flex items-center gap-1.5 rounded-full border border-ai/30 bg-ai/10 px-3 py-1 text-[11.5px] font-medium text-ai">
                 <Sparkles className="h-3.5 w-3.5" aria-hidden />
-                <span>قراءة فورية بالذكاء الاصطناعي — مجاني بدون تسجيل</span>
+                <span>قراءة وتظليل فوري بالذكاء الاصطناعي — مجاني بدون تسجيل</span>
               </div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-fg sm:text-3xl">
-                ارفع ملف PDF واحصل على الملخص والنص الكامل
+                ارفع ملف PDF واحصل على الملخص والنص وتظليل النقاط المهمة
               </h1>
               <p className="mt-2 text-[13.5px] leading-relaxed text-muted">
                 يدعم المستندات الممسوحة ضوئياً، الأختام العربية، الجداول، التواريخ،
-                والمبالغ المالية بدقة عالية.
+                والمبالغ المالية مع تظليل بصري مباشر داخل صفحات الملف.
               </p>
             </div>
 
@@ -419,8 +431,8 @@ export default function PdfAnalyzerHomePage() {
 
             <div className="mt-8 grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4">
               {[
+                { icon: Highlighter, label: "تظليل على الـ PDF" },
                 { icon: Sparkles, label: "ملخص تنفيذي" },
-                { icon: ListChecks, label: "النقاط الرئيسية" },
                 { icon: FileText, label: "النص الكامل OCR" },
                 { icon: MessageSquare, label: "اسأل عن الملف" },
               ].map((feat) => {
@@ -602,6 +614,51 @@ export default function PdfAnalyzerHomePage() {
                         {result.summary || "لا يوجد ملخص."}
                       </p>
                     </section>
+
+                    {result.highlights && result.highlights.length > 0 && (
+                      <section>
+                        <div className="mb-2.5 flex items-center justify-between gap-2">
+                          <h2 className="eyebrow flex items-center gap-1.5">
+                            <Highlighter className="h-3.5 w-3.5 text-amber-500" aria-hidden />
+                            مواضع التظليل داخل الـ PDF
+                          </h2>
+                          <span className="text-[11px] text-faint">
+                            انقر للانتقال إلى الموضع المظلل
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {result.highlights.map((h, idx) => {
+                            const isActive = activeHighlightIndex === idx;
+                            const dot = HIGHLIGHT_DOT[h.category] || HIGHLIGHT_DOT.key_point;
+                            return (
+                              <button
+                                key={`${idx}-${h.page}`}
+                                type="button"
+                                onClick={() =>
+                                  setActiveHighlightIndex(isActive ? null : idx)
+                                }
+                                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-all ${
+                                  isActive
+                                    ? "border-amber-500/70 bg-amber-400/20 text-fg shadow-sm"
+                                    : "border-line bg-panel text-fg hover:border-line-strong hover:bg-raised"
+                                }`}
+                              >
+                                <span
+                                  className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`}
+                                  aria-hidden
+                                />
+                                <span className="max-w-[230px] truncate">
+                                  {h.label || `موضع ${idx + 1}`}
+                                </span>
+                                <span className="rounded bg-bg/70 px-1.5 py-0.5 text-[10.5px] text-muted">
+                                  ص <LtrCode>{h.page}</LtrCode>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
 
                     {result.keyPoints.length > 0 && (
                       <section>
@@ -821,6 +878,9 @@ export default function PdfAnalyzerHomePage() {
                 filename={currentFilename}
                 pageCount={result?.pageCount || 1}
                 analyzing={analyzing}
+                highlights={result?.highlights || []}
+                activeHighlightIndex={activeHighlightIndex}
+                onSelectHighlight={setActiveHighlightIndex}
                 onCancelAnalyze={handleCancelAnalyze}
                 onFilesSelected={(files) => {
                   if (files[0]) analyzeFile(files[0]);
